@@ -1,6 +1,9 @@
 //! The main error enum for the project lives here, and documents the various
 //! conditions that can arise while interacting with the system.
 
+use crate::{
+    peer::{Pubkey as PeerPubkey},
+};
 use thiserror::Error;
 
 /// This is our error enum. It contains an entry for any part of the system in
@@ -11,13 +14,26 @@ pub enum Error {
     #[error("deserialization error")]
     Deserialize(#[from] rmp_serde::decode::Error),
 
-    /// An IO/net error
-    #[error("io error {0:?}")]
-    IoError(#[from] std::io::Error),
+    /// Failed to create a keypair from seed
+    #[error("failed to create a keypair from seed")]
+    KeypairFromSeedFailed,
 
     /// Failed to open a sealed message. This is a bummer, man.
     #[error("failed to open a sealed message")]
     MessageOpenFailed,
+
+    /// A peer public key was not provided while processing an event that
+    /// requires it to be present.
+    #[error("missing peer pubkey")]
+    MissingPubkey,
+
+    /// Cannot parse an address
+    #[error("error parsing address {0:?}")]
+    ParseError(#[from] std::net::AddrParseError),
+
+    /// A message was received from a peer we haven't linked with yet.
+    #[error("peer {0:?} not found")]
+    PeerNotFound(PeerPubkey),
 
     /// An error while engaging in serialization.
     #[error("serialization error")]
