@@ -510,7 +510,7 @@ impl<T> Sync<T> {
     pub fn process_event_subscribe<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey) -> Result<Vec<Action<U, T, S>>>
         where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
               T: Clone + Debug + std::hash::Hash + std::cmp::Eq + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned + Subscription<T>,
+              S: Subscription<T>,
     {
         match message_opened.body() {
             Event::Subscribe(subscriptions) => {
@@ -534,7 +534,6 @@ impl<T> Sync<T> {
     pub fn process_event_unsubscribe<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey) -> Result<Vec<Action<U, T, S>>>
         where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
               T: Clone + Debug + std::hash::Hash + std::cmp::Eq + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned + Subscription<T>,
     {
         match message_opened.body() {
             Event::Unsubscribe(topics) => {
@@ -1462,11 +1461,121 @@ mod tests {
 
     #[test]
     fn process_event_subscribe() {
-        unimplemented!();
+        #[derive(Clone, Debug, Serialize, Deserialize)]
+        struct MySubscription<T> {
+            valid: bool,
+            topic: T,
+        }
+
+        impl<T> Subscription<T> for MySubscription<T> {
+            fn verify(&self) -> Option<&T> {
+                if self.valid {
+                    Some(&self.topic)
+                } else {
+                    None
+                }
+            }
+        }
+
+        let mut sync1 = make_sync::<String>("getforked");
+        let peer1 = Peer::tmp(&Keypair::new_random().to_pubkey(), sync1.keypair().seckey());
+        let peer1_info = PeerInfo::new(peer1.clone(), ConnectionInfo::new("44.33.77.123:5556").unwrap(), true, util::now());
+        sync1.peers.insert(peer1.pubkey().clone(), peer1_info);
+        let body1 = Event::<(), String, MySubscription<String>>::Subscribe(vec![
+            MySubscription { valid: false, topic: "getajob".into() },
+            MySubscription { valid: true, topic: "poopy butt".into() },
+            MySubscription { valid: true, topic: "I HAVE HERPES".into() },
+        ]);
+        let (message1, _, _) = make_message(body1, vec![]);
+        let res1 = sync1.process_event_subscribe(&message1, &peer1.pubkey()).unwrap();
+        // only 2 because the first is invalid LOLOLOL!!! AAHAHAHAHAHAHH OMFGROFLMFAO
+        assert_eq!(res1.len(), 2);
+        match &res1[0] {
+            Action::Sync(SyncAction::SetSubscription(topic, peer_info)) => {
+                assert_eq!(topic, "poopy butt");
+                assert_eq!(peer_info.peer(), &peer1);
+            }
+            _ => panic!("ew you wore those shoes??"),
+        }
+        match &res1[1] {
+            Action::Sync(SyncAction::SetSubscription(topic, peer_info)) => {
+                assert_eq!(topic, "I HAVE HERPES");
+                assert_eq!(peer_info.peer(), &peer1);
+            }
+            _ => panic!("HODL"),
+        }
+
+        // bad dates
+        let (message2, pubkey_sender2, _) = make_message(Event::Ping, vec![]);
+        let res2 = sync1.process_event_subscribe::<(), MySubscription<String>>(&message2, &pubkey_sender2);
+        assert_eq!(res2.unwrap_err(), Error::EventMismatch);
+
+        // no peer
+        let body3 = Event::<(), String, MySubscription<String>>::Subscribe(vec![
+            MySubscription { valid: true, topic: "FORENSIC EVIDENCE NEAR THE TORSO".into() },
+        ]);
+        let (message3, pubkey_sender3, _) = make_message(body3, vec![]);
+        let res3 = sync1.process_event_subscribe::<(), MySubscription<String>>(&message3, &pubkey_sender3);
+        assert_eq!(res3.unwrap_err(), Error::PeerNotFound(pubkey_sender3));
     }
 
     #[test]
     fn process_event_unsubscribe() {
+        let mut sync1 = make_sync::<String>("getforked");
+        let peer1 = Peer::tmp(&Keypair::new_random().to_pubkey(), sync1.keypair().seckey());
+        let peer1_info = PeerInfo::new(peer1.clone(), ConnectionInfo::new("44.33.77.123:5556").unwrap(), true, util::now());
+        sync1.peers.insert(peer1.pubkey().clone(), peer1_info);
+        let body1 = Event::<(), String, ()>::Unsubscribe(vec![
+            "getajob".into(),
+            "poopy butt".into(),
+            "I HAVE HERPES".into(),
+        ]);
+        let (message1, _, _) = make_message(body1, vec![]);
+        let res1 = sync1.process_event_unsubscribe(&message1, &peer1.pubkey()).unwrap();
+        assert_eq!(res1.len(), 3);
+        match &res1[0] {
+            Action::Sync(SyncAction::UnsetSubscription(topic, peer_info)) => {
+                assert_eq!(topic, "getajob");
+                assert_eq!(peer_info.peer(), &peer1);
+            }
+            _ => panic!("ew you wore those shoes??"),
+        }
+        match &res1[1] {
+            Action::Sync(SyncAction::UnsetSubscription(topic, peer_info)) => {
+                assert_eq!(topic, "poopy butt");
+                assert_eq!(peer_info.peer(), &peer1);
+            }
+            _ => panic!("ew you wore those shoes??"),
+        }
+        match &res1[2] {
+            Action::Sync(SyncAction::UnsetSubscription(topic, peer_info)) => {
+                assert_eq!(topic, "I HAVE HERPES");
+                assert_eq!(peer_info.peer(), &peer1);
+            }
+            _ => panic!("HODL"),
+        }
+
+        // bad dates
+        let (message2, pubkey_sender2, _) = make_message(Event::Ping, vec![]);
+        let res2 = sync1.process_event_unsubscribe::<(), ()>(&message2, &pubkey_sender2);
+        assert_eq!(res2.unwrap_err(), Error::EventMismatch);
+
+        // no peer
+        let body3 = Event::<(), String, ()>::Unsubscribe(vec![
+            "FORENSIC EVIDENCE NEAR THE TORSO".into(),
+        ]);
+        let (message3, pubkey_sender3, _) = make_message(body3, vec![]);
+        let res3 = sync1.process_event_unsubscribe::<(), ()>(&message3, &pubkey_sender3);
+        assert_eq!(res3.unwrap_err(), Error::PeerNotFound(pubkey_sender3));
+    }
+
+    #[test]
+    fn process_event_query_subscriptions() {
+        unimplemented!();
+    }
+
+    #[test]
+    fn process_event_active_subscriptions() {
         unimplemented!();
     }
 

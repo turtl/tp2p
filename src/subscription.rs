@@ -11,6 +11,6 @@ pub trait Subscription<T> {
     ///
     /// Or you can always return the topics here if you're working with trusted
     /// peers.
-    fn verify(&self) -> Option<T>;
+    fn verify(&self) -> Option<&T>;
 }
 

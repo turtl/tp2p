@@ -59,6 +59,10 @@ pub enum Event<U, T, S> {
     Subscribe(Vec<S>),
     /// Unsubscribe from topic(s).
     Unsubscribe(Vec<T>),
+    /// Lets a peer ask another which active topics they are subscribed to
+    QuerySubscriptions,
+    /// Response to [`QuerySubscriptions`](crate::event::Event::QuerySubscriptions)
+    ActiveSubscriptions(Vec<T>),
     /// User-defined messages/events.
     ///
     /// This is where you'll send actual data between your peers.
