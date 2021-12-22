@@ -1,19 +1,30 @@
+use chrono::{DateTime, Utc};
 use crate::{
-    Mode,
     error::{Error, Result},
+    sync::ConnectionInfo,
+    topic::Topic,
 };
-use getset::{Getters, Setters};
+use getset::{Getters, MutGetters, Setters};
 use serde_derive::{Serialize, Deserialize};
 use sodiumoxide::{
     crypto::box_::curve25519xsalsa20poly1305,
 };
-use std::ops::Deref;
+use std::{fmt, ops::Deref};
 
 /// A peer's public key.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Getters)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Getters)]
 #[getset(get = "pub")]
 pub struct Pubkey {
     inner: curve25519xsalsa20poly1305::PublicKey,
+}
+
+impl Pubkey {
+    /// Create a new public key.
+    pub fn new(pubkey: curve25519xsalsa20poly1305::PublicKey) -> Self {
+        Self {
+            inner: pubkey,
+        }
+    }
 }
 
 impl Deref for Pubkey {
@@ -23,12 +34,14 @@ impl Deref for Pubkey {
     }
 }
 
-impl Pubkey {
-    /// Create a new public key.
-    pub fn new(pubkey: curve25519xsalsa20poly1305::PublicKey) -> Self {
-        Self {
-            inner: pubkey,
-        }
+/// Convert bytes to base64
+pub fn base64_encode<T: AsRef<[u8]>>(bytes: T) -> String {
+    base64::encode_config(bytes.as_ref(), base64::URL_SAFE_NO_PAD)
+}
+
+impl fmt::Display for Pubkey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "pubkey::{}", base64_encode(self.deref()))
     }
 }
 
@@ -71,11 +84,8 @@ impl Keypair {
 }
 
 /// Holds information about a peer.
-#[derive(Debug, Clone, PartialEq, Getters, Setters)]
+#[derive(Debug, Clone, PartialEq, Getters, Setters, Serialize, Deserialize)]
 pub struct Peer {
-    /// The operating modes this peer advertised when peering was set up.
-    #[getset(get = "pub", set = "pub(crate)")]
-    mode: Mode,
     /// The name of our peer, probably a device name LOL
     #[getset(get = "pub", set = "pub(crate)")]
     name: String,
@@ -89,19 +99,134 @@ pub struct Peer {
 
 impl Peer {
     /// Create a new Peer.
-    pub(crate) fn new(mode: Mode, name: String, pubkey: Pubkey, our_seckey: &curve25519xsalsa20poly1305::SecretKey) -> Self {
+    pub(crate) fn new(name: String, pubkey: Pubkey, our_seckey: &curve25519xsalsa20poly1305::SecretKey) -> Self {
         let precomputed = curve25519xsalsa20poly1305::precompute(&pubkey, &our_seckey);
         Self {
-            mode,
             name,
             pubkey,
             precomputed,
         }
     }
 
-    /// A convenience function to create a temporary, nameless, modeless peer.
+    /// A convenience function to create a temporary, nameless peer.
     pub(crate) fn tmp(pubkey: &Pubkey, our_seckey: &curve25519xsalsa20poly1305::SecretKey) -> Self {
-        Self::new(Mode::Agent, "<tmp>".into(), pubkey.clone(), our_seckey)
+        Self::new("<tmp>".into(), pubkey.clone(), our_seckey)
+    }
+}
+
+/// Holds information about a peer.
+#[derive(Debug, Clone, Getters, MutGetters, Setters, Serialize, Deserialize)]
+#[getset(get = "pub", get_mut = "pub(crate)", set = "pub(crate)")]
+pub struct PeerInfo {
+    /// The peer themselves
+    peer: Peer,
+    /// The connection information associated with this peer
+    connection_info: ConnectionInfo,
+    /// Whether peering is active (ie, we've sent a `PeerConfirm` event)
+    active: bool,
+    /// Last time this peer pinged or ponged us
+    last_ping: DateTime<Utc>,
+}
+
+impl PeerInfo {
+    /// Create a new PeerInfo
+    pub fn new(peer: Peer, connection_info: ConnectionInfo, active: bool, last_ping: DateTime<Utc>) -> Self {
+        Self {
+            peer,
+            connection_info,
+            active,
+            last_ping,
+        }
+    }
+}
+
+/// Determines if/how we allow incoming peers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ConfirmationMode {
+    /// Deny all peering requests, except the given whitelist.
+    ///
+    /// Good for private headless peers where confirmation isn't even possible
+    /// (due to there being no good UI to get confirmation from).
+    Private {
+        whitelist: Vec<Pubkey>,
+    },
+    /// Allow all whitelisted peers, deny all blacklisted, and confirm any
+    /// unknown peers.
+    ///
+    /// Good for peers with a UI that allows confirmations. This is basically a
+    /// good default for any app-based peer.
+    Confirm {
+        whitelist: Vec<Pubkey>,
+        blacklist: Vec<Pubkey>,
+    },
+    /// Allow all peering requests from peers. Deny blacklisted. Whitelist
+    /// specifically for non-agent based peers (ie, other trusted relay nodes).
+    ///
+    /// Good for public relay/storage nodes.
+    PublicAgent {
+        whitelist: Vec<Pubkey>,
+        blacklist: Vec<Pubkey>,
+    },
+}
+
+/// Determines what topics are published to who.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SubscriptionConfig {
+    /// Allow all topics to be published to all peers except those in this list.
+    Blacklist(Vec<(Pubkey, Topic)>),
+    /// Prohobit all topics to be published to any peers except those in this
+    /// list.
+    Whitelist(Vec<(Pubkey, Topic)>),
+}
+
+/// Our peer configuration. Determines how/if we accept other peers, as well as
+/// our topic configuration.
+#[derive(Debug, Clone, Getters, Serialize, Deserialize)]
+#[getset(get = "pub(crate)")]
+pub struct PeeringConfig {
+    /// How we confirm other peers.
+    confirmation: ConfirmationMode,
+    /// Topic subscription config
+    subscriptions: SubscriptionConfig,
+}
+
+impl PeeringConfig {
+    /// Create a new peering config.
+    pub fn new(confirmation: ConfirmationMode, subscriptions: SubscriptionConfig) -> Self {
+        Self {
+            confirmation,
+            subscriptions,
+        }
+    }
+
+    pub(crate) fn can_confirm(&self, peer_pubkey: &Pubkey) -> Option<bool> {
+        match self.confirmation() {
+            ConfirmationMode::Private { whitelist } => {
+                if whitelist.iter().find(|x| x == &peer_pubkey).is_some() {
+                    Some(true)
+                } else {
+                    Some(false)
+                }
+            }
+            ConfirmationMode::Confirm { whitelist, blacklist } => {
+                if blacklist.iter().find(|x| x == &peer_pubkey).is_some() {
+                    Some(false)
+                } else if whitelist.iter().find(|x| x == &peer_pubkey).is_some() {
+                    Some(true)
+                } else {
+                    None
+                }
+            }
+            ConfirmationMode::PublicAgent { whitelist, blacklist } => {
+                if blacklist.iter().find(|x| x == &peer_pubkey).is_some() {
+                    Some(false)
+                } else if whitelist.iter().find(|x| x == &peer_pubkey).is_some() {
+                    Some(true)
+                } else {
+                    Some(true)
+                }
+            }
+        }
     }
 }
 

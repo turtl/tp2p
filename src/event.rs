@@ -3,40 +3,47 @@
 //! and can create messages to other peers or modify database values.
 
 use crate::{
-    Mode,
     message::MessageID,
-    topic::{Subscription, Topic},
 };
 use serde_derive::{Serialize, Deserialize};
-use sodiumoxide::crypto::hash::sha256;
 
-/// Represents a p2p event we should (probably) respond to.
+/// Represents a p2p event. All the events here allow setting up topic-based
+/// communication channels between peers, except for the `User` event which is
+/// used to send your actual application messages between peers.
+///
+/// In other words, most of the garbage here is used by the tp2p system. The
+/// `User` event is for you!
+///
+/// There are three generics: `U` ("User") which is your app's custom syncing
+/// type, `T` ("Topic") which describes topics, and `S` ("Subscription") which
+/// describes a subscription (and implements the [Subscription](crate::subscription::Subscription)
+/// trait). Subscriptions are generally a wrapper around a topic type (`T`,
+/// here) that also contains some verifiable cryptographic proof that the agent
+/// posting the subscription has access to the given topic. The details of how
+/// this is accomplished is entirely up to you, dear friend, via the
+/// `Subscription` trait.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Event {
+pub enum Event<U, T, S> {
     /// Used to initiate encrypted communication.
     Hello,
     /// Used when a new peer wants to establish a connection with our group.
     PeerInit {
-        /// The peering mode the initiating peer uses.
-        mode: Mode,
         /// The name the initiating peer wishes to use. Hopefully not an 18GB
         /// string.
         name: String,
-        /// Topics the initating peer is willing to publish to.
-        topics: Vec<Topic>,
     },
     /// A confirmation that peering is approved.
     PeerConfirm {
-        /// The peering mode the confirming peer uses.
-        mode: Mode,
         /// The peer name of the confirming peer.
         name: String,
-        /// Topics the confirming peer is willing to publish to.
-        topics: Vec<Topic>,
     },
+    /// Shake, are you there?
+    Ping,
+    /// Yes, I'm right beside you.
+    Pong,
     /// Ask peers for messages with the given IDs. No need for a specific
     /// response type because the peer will just send the messages as the result
-    QueryMessagesById {
+    QueryMessagesByID {
         /// The IDs of the messages we want
         ids: Vec<MessageID>,
     },
@@ -44,32 +51,17 @@ pub enum Event {
     /// response type because the peer will just send the messages as the result
     QueryMessagesByDepth {
         /// The topic we're querying messages for
-        topic: Topic,
+        topic: T,
         /// Find messages after this depth
         depth: u64,
     },
-    /// See which peers have the given file chunks
-    QueryPeerFileChunks(Vec<sha256::Digest>),
-    /// Here are the chunks we have.
-    ResultQueryPeerFileChunks(Vec<sha256::Digest>),
-    /// Advertise that this peer provides these new topics. This list does not
-    /// need to be exhaustive, it can simply add to existing lists.
-    TopicsAdded(Vec<Topic>),
-    /// Advertise that this peer no longer provides the given topics.
-    TopicsRemoved(Vec<Topic>),
-    /// Subscribe to a topic.
-    Subscribe(Vec<Subscription>),
-    /// Unsubscribe from a topic
-    Unsubscribe(Vec<Subscription>),
-    /// Sync a change to the data profile
-    Sync(()),
-    /// Ask for file chunks from a peer.
+    /// Subscribe to topic(s).
+    Subscribe(Vec<S>),
+    /// Unsubscribe from topic(s).
+    Unsubscribe(Vec<T>),
+    /// User-defined messages/events.
     ///
-    /// Generally, we use `QueryPeerFileChunks` first to see who has what chunks
-    /// and then we'll find one peer that has the chunks we need and ask them to
-    /// throw some chunks our way.
-    GetFileChunks(Vec<sha256::Digest>),
-    /// A message carrying a chunk of a file.
-    FileChunk(sha256::Digest, Vec<u8>),
+    /// This is where you'll send actual data between your peers.
+    User(U),
 }
 

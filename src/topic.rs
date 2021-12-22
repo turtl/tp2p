@@ -7,7 +7,7 @@ use serde_derive::{Serialize, Deserialize};
 
 /// Describes a topic that can be subscribed to. Peers will subscribe to topics
 /// in order to be notified of messages that are important to them.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Topic {
     /// Subscribe to any messages destined for a particular identity.
     Identity(IdentityPubkey),

@@ -1,0 +1,9 @@
+- converting Message/Event to be generic containers, so turtl-specific shit won't gum up
+the protocol
+- converting src/lib.rs to use the generics, but obvis it's a bitch and unfinished
+- tests giving me grief as well
+- currently stuck on Sync.process_incoming_message() -- the `PeerInit` event needs a list
+of active topics to send back in the Confirm msg, however we don't have this at present,
+and not sure where to get it from. i want to start removing state from the Sync object
+and storing it somewhere else. does it pass in all possible state in each call? need some
+way of passing in state only relevant to the current event.

@@ -8,7 +8,6 @@ use crate::{
     error::{Error, Result},
     message,
     ser,
-    util,
 };
 use getset::{Getters};
 use serde_derive::{Serialize, Deserialize};
@@ -16,7 +15,7 @@ use sodiumoxide::crypto::{box_, sign};
 use std::ops::Deref;
 
 /// An identity's public key.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Getters)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Getters)]
 #[getset(get = "pub")]
 pub struct Pubkey {
     inner: sign::PublicKey,
@@ -90,14 +89,13 @@ pub struct IdentityProof {
 
 impl IdentityProof {
     /// Create a proof of identity.
-    pub fn prove(identity: &Identity) -> Result<Self> {
-        let now = util::now();
+    pub fn prove(identity: &Identity, now: &DateTime<Utc>) -> Result<Self> {
         let nonce = message::gen_nonce();
         let sign_me = (&now, &nonce);
         let serialized = ser::serialize(&sign_me)?;
         let signature = sign::sign_detached(&serialized, identity.seckey());
         Ok(Self {
-            date: now,
+            date: now.clone(),
             nonce,
             signature,
         })

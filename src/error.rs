@@ -14,9 +14,17 @@ pub enum Error {
     #[error("deserialization error")]
     Deserialize(#[from] rmp_serde::decode::Error),
 
+    /// The wrong function was called when processing an event
+    #[error("incorrect event processing function called")]
+    EventMismatch,
+
     /// Failed to create a keypair from seed
     #[error("failed to create a keypair from seed")]
     KeypairFromSeedFailed,
+
+    /// A `MessageWrapped` was given that was not the `Init` variant
+    #[error("given wrapped message was not an `Init`")]
+    MessageNotInit,
 
     /// Failed to open a sealed message. This is a bummer, man.
     #[error("failed to open a sealed message")]

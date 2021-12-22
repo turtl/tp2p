@@ -1,3 +1,12 @@
+## TODO
+
+- wrap the `Message` object in a version enum
+- wrap the `Event` object in a version enum
+- `Sync` stores recent message IDs
+- `Sync` stores the last non-references messages per-topic
+
+## org
+
 - peers
   - accepted by public key AND auth token
   - can peer in encrypt-only mode
