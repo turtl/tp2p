@@ -255,9 +255,9 @@ impl<T> Sync<T> {
     /// objects should be handed to `unwrap_incoming_message()`. Or else.
     #[tracing::instrument(skip(message_wrapped))]
     pub fn process_init_message<U, S>(&self, message_wrapped: &MessageWrapped, connection_info: &ConnectionInfo, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
+        where U: serde::Serialize,
+              T: Debug + serde::Serialize,
+              S: serde::Serialize,
     {
         match message_wrapped {
             // unwrap the sealed message and hand it back
@@ -284,9 +284,9 @@ impl<T> Sync<T> {
     /// (which returns a set of actions to take).
     #[tracing::instrument(skip(self, message), fields(peer = %message.pubkey_sender()))]
     pub fn unwrap_incoming_message<U, S>(&self, message: &MessageSealed) -> Result<Message<U, T, S>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
+        where U: serde::de::DeserializeOwned,
+              T: serde::de::DeserializeOwned,
+              S: serde::de::DeserializeOwned,
     {
         let peer_from_maybe = self.find_peer(message.pubkey_sender(), None);
         let message_opened = if let Some(peer_from) = peer_from_maybe {
@@ -316,9 +316,9 @@ impl<T> Sync<T> {
     /// [`unwrap_incoming_message`] call.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender, addr = %connection_info))]
     pub fn process_event_hello<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, connection_info: &ConnectionInfo, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
+        where U: serde::Serialize,
+              T: serde::Serialize,
+              S: serde::Serialize,
     {
         if !matches!(message_opened.body(), &Event::Hello) {
             Err(Error::EventMismatch)?;
@@ -346,9 +346,9 @@ impl<T> Sync<T> {
     /// Call this to process an [`Event::PeerInit`] message.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender, addr = %connection_info))]
     pub fn process_event_peer_init<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, connection_info: &ConnectionInfo, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
+        where U: Clone + serde::Serialize,
+              T: Clone + serde::Serialize,
+              S: Clone + serde::Serialize,
     {
         match message_opened.body() {
             Event::PeerInit { name } => {
@@ -377,11 +377,7 @@ impl<T> Sync<T> {
 
     /// Call this to process an [`Event::PeerConfirm`] message.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender))]
-    pub fn process_event_peer_confirm<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-    {
+    pub fn process_event_peer_confirm<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>> {
         match message_opened.body() {
             Event::PeerConfirm { name } => {
                 let peer_info = self.find_peer(pubkey_sender, None)
@@ -401,9 +397,9 @@ impl<T> Sync<T> {
     /// Call this to process an [`Event::Ping`] message.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender, addr = %connection_info))]
     pub fn process_event_ping<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, connection_info: &ConnectionInfo, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
+        where U: serde::Serialize,
+              T: serde::Serialize,
+              S: serde::Serialize,
     {
         if !matches!(message_opened.body(), &Event::Ping) {
             Err(Error::EventMismatch)?;
@@ -427,11 +423,7 @@ impl<T> Sync<T> {
 
     /// Call this to process an [`Event::Pong`] message.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender, addr = %connection_info))]
-    pub fn process_event_pong<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, connection_info: &ConnectionInfo, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-    {
+    pub fn process_event_pong<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, connection_info: &ConnectionInfo, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>> {
         if !matches!(message_opened.body(), &Event::Pong) {
             Err(Error::EventMismatch)?;
         }
@@ -448,9 +440,9 @@ impl<T> Sync<T> {
     /// that the queried messages be passed in.
     #[tracing::instrument(skip(self, message_opened, messages), fields(peer = %pubkey_sender, addr = %connection_info))]
     pub fn process_event_query_messages_by_id<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, connection_info: &ConnectionInfo, messages: &Vec<Message<U, T, S>>) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + std::hash::Hash + std::cmp::Eq + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
+        where U: serde::Serialize,
+              T: std::hash::Hash + std::cmp::Eq + serde::Serialize,
+              S: serde::Serialize,
     {
         if messages.len() == 0 {
             return Ok(vec![]);
@@ -478,9 +470,9 @@ impl<T> Sync<T> {
     /// that the queried messages be passed in.
     #[tracing::instrument(skip(self, message_opened, messages), fields(peer = %pubkey_sender, addr = %connection_info))]
     pub fn process_event_query_messages_by_depth<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, connection_info: &ConnectionInfo, messages: &Vec<Message<U, T, S>>) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + std::hash::Hash + std::cmp::Eq + serde::Serialize + serde::de::DeserializeOwned,
-              S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
+        where U: serde::Serialize,
+              T: std::hash::Hash + std::cmp::Eq + serde::Serialize,
+              S: serde::Serialize,
     {
         if messages.len() == 0 {
             return Ok(vec![]);
@@ -508,8 +500,7 @@ impl<T> Sync<T> {
     /// that the queried messages be passed in.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender))]
     pub fn process_event_subscribe<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + std::hash::Hash + std::cmp::Eq + serde::Serialize + serde::de::DeserializeOwned,
+        where T: Clone,
               S: Subscription<T>,
     {
         match message_opened.body() {
@@ -532,8 +523,7 @@ impl<T> Sync<T> {
     /// that the queried messages be passed in.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender))]
     pub fn process_event_unsubscribe<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey) -> Result<Vec<Action<U, T, S>>>
-        where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-              T: Clone + Debug + std::hash::Hash + std::cmp::Eq + serde::Serialize + serde::de::DeserializeOwned,
+        where T: Clone,
     {
         match message_opened.body() {
             Event::Unsubscribe(topics) => {
