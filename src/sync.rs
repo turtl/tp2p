@@ -496,8 +496,7 @@ impl<T> Sync<T> {
         }
     }
 
-    /// Call this to process an [`Event::Subscribe`] message. Requires
-    /// that the queried messages be passed in.
+    /// Call this to process an [`Event::Subscribe`] message.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender))]
     pub fn process_event_subscribe<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey) -> Result<Vec<Action<U, T, S>>>
         where T: Clone,
@@ -519,8 +518,7 @@ impl<T> Sync<T> {
         }
     }
 
-    /// Call this to process an [`Event::Unsubscribe`] message. Requires
-    /// that the queried messages be passed in.
+    /// Call this to process an [`Event::Unsubscribe`] message.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender))]
     pub fn process_event_unsubscribe<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey) -> Result<Vec<Action<U, T, S>>>
         where T: Clone,
@@ -538,8 +536,7 @@ impl<T> Sync<T> {
         }
     }
 
-    /// Call this to process an [`Event::QuerySubscriptions`] message. Requires
-    /// that the queried messages be passed in.
+    /// Call this to process an [`Event::QuerySubscriptions`] message.
     #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender))]
     pub fn process_event_query_subscriptions<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>>
         where U: serde::Serialize,
@@ -562,6 +559,22 @@ impl<T> Sync<T> {
                 let body = Event::<U, T, S>::ActiveSubscriptions(topics);
                 let sealed = self.create_sealed_message(peer_info.peer(), body, vec![], now)?;
                 Ok(vec![Action::MessageSend(peer_info.connection_info().clone(), sealed)])
+            }
+            _ => Err(Error::EventMismatch),
+        }
+    }
+
+    /// Call this to process an [`Event::ActiveSubscriptions`] message.
+    ///
+    /// Honestly, doesn't do anything because the caller should handle the event
+    /// however they need to. This method is provided for consistency.
+    #[tracing::instrument(skip(self, message_opened), fields(peer = %pubkey_sender))]
+    pub fn process_event_active_subscriptions<U, S>(&self, message_opened: &Message<U, T, S>, pubkey_sender: &PeerPubkey, now: &DateTime<Utc>) -> Result<Vec<Action<U, T, S>>> {
+        match message_opened.body() {
+            Event::ActiveSubscriptions(_subscriptions) => {
+                let _peer_info = self.find_peer(pubkey_sender, None)
+                    .ok_or(Error::PeerNotFound(pubkey_sender.clone()))?;
+                Ok(vec![])
             }
             _ => Err(Error::EventMismatch),
         }
@@ -1593,12 +1606,91 @@ mod tests {
 
     #[test]
     fn process_event_query_subscriptions() {
-        unimplemented!();
+        let sync1 = make_sync::<String>("'i have done that,' said toad");  // and he crossed out: make a Sync object
+        let (message1, pubkey_sender1) = make_message::<(), String, ()>(Event::Ping, vec![]);
+        let res1 = sync1.process_event_query_subscriptions(&message1, &pubkey_sender1, &util::now());
+        assert_eq!(res1.unwrap_err(), Error::EventMismatch);
+
+        let (message2, pubkey_sender2) = make_message::<(), String, ()>(Event::QuerySubscriptions, vec![]);
+        let res2 = sync1.process_event_query_subscriptions(&message2, &pubkey_sender2, &util::now());
+        assert_eq!(res2.unwrap_err(), Error::PeerNotFound(pubkey_sender2.clone()));
+
+        let mut sync3 = sync1.clone();
+        let mut sync3_from = make_sync::<String>("SMASH THAT SUBSCRIBE!!");
+        let peer3 = sync_to_peer(&sync3_from, sync3.keypair().seckey());
+        let peer3_info = PeerInfo::new(peer3.clone(), ConnectionInfo::new("44.33.77.111:5556").unwrap(), true, util::now());
+        let peer3_from = sync_to_peer(&sync3, sync3_from.keypair().seckey());
+        let peer3_from_info = PeerInfo::new(peer3_from.clone(), ConnectionInfo::new("222.18.17.43:882").unwrap(), true, util::now());
+        let peer3_random = Peer::tmp(&Keypair::new_random().to_pubkey(), sync1.keypair().seckey());
+        let peer3_random_info = PeerInfo::new(peer3_random.clone(), ConnectionInfo::new("1.2.3.4:777").unwrap(), true, util::now());
+        sync3.peers.insert(peer3.pubkey().clone(), peer3_info.clone());
+        sync3.peers.insert(peer3_random.pubkey().clone(), peer3_random_info.clone());
+        sync3_from.peers.insert(peer3_from.pubkey().clone(), peer3_from_info);
+
+        let (message3, _) = make_message::<(), String, ()>(Event::QuerySubscriptions, vec![]);
+        let res3 = sync3.process_event_query_subscriptions(&message3, peer3.pubkey(), &util::now()).unwrap();
+        assert_eq!(res3.len(), 1);
+        match &res3[0] {
+            Action::MessageSend(conninfo, MessageWrapped::Sealed(sealed)) => {
+                assert_eq!(conninfo, peer3_info.connection_info());
+                let unsealed = sync3_from.unwrap_incoming_message::<(), ()>(sealed).unwrap();
+                assert_eq!(unsealed.body(), &Event::ActiveSubscriptions(vec![]));
+            }
+            _ => panic!("jinkies"),
+        }
+
+        sync3.subscriptions.insert("roundabout".into(), vec![peer3_info.clone()]);
+        sync3.subscriptions.insert("bayfield fudge".into(), vec![peer3_random_info.clone()]);
+        sync3.subscriptions.insert("Zing of the day".into(), vec![peer3_random_info.clone()]);
+        sync3.subscriptions.insert("bayfield fudge".into(), vec![peer3_info.clone()]);
+        sync3.subscriptions.insert("pilfer".into(), vec![peer3_random_info.clone()]);
+
+        let (message4, _) = make_message::<(), String, ()>(Event::QuerySubscriptions, vec![]);
+        let res4 = sync3.process_event_query_subscriptions(&message4, peer3.pubkey(), &util::now()).unwrap();
+        assert_eq!(res4.len(), 1);
+        match &res4[0] {
+            Action::MessageSend(conninfo, MessageWrapped::Sealed(sealed)) => {
+                assert_eq!(conninfo, peer3_info.connection_info());
+                let unsealed = sync3_from.unwrap_incoming_message::<(), ()>(sealed).unwrap();
+                match unsealed.body() {
+                    Event::ActiveSubscriptions(subs) => {
+                        let mut subs = subs.clone();
+                        subs.sort();
+                        let comp: Vec<String> = vec![
+                            "bayfield fudge".into(),
+                            "roundabout".into(),
+                        ];
+                        assert_eq!(subs, comp);
+                    }
+                    _ => panic!("bad dates"),
+                }
+            }
+            _ => panic!("jinkies"),
+        }
     }
 
     #[test]
     fn process_event_active_subscriptions() {
-        unimplemented!();
+        let sync1 = make_sync::<String>("'i have done that,' said toad");  // and he crossed out: make a Sync object
+        let (message1, pubkey_sender1) = make_message::<(), String, ()>(Event::Ping, vec![]);
+        let res1 = sync1.process_event_active_subscriptions(&message1, &pubkey_sender1, &util::now());
+        assert_eq!(res1.unwrap_err(), Error::EventMismatch);
+
+        let (message2, pubkey_sender2) = make_message::<(), String, ()>(Event::ActiveSubscriptions(vec![]), vec![]);
+        let res2 = sync1.process_event_active_subscriptions(&message2, &pubkey_sender2, &util::now());
+        assert_eq!(res2.unwrap_err(), Error::PeerNotFound(pubkey_sender2.clone()));
+
+        let mut sync3 = sync1.clone();
+        let peer3 = Peer::tmp(&Keypair::new_random().to_pubkey(), sync3.keypair().seckey());
+        let peer3_info = PeerInfo::new(peer3.clone(), ConnectionInfo::new("44.33.77.123:5556").unwrap(), true, util::now());
+        sync3.peers.insert(peer3.pubkey().clone(), peer3_info.clone());
+        let (message3, _) = make_message::<(), String, ()>(Event::ActiveSubscriptions(vec![]), vec![]);
+        let res3 = sync3.process_event_active_subscriptions(&message3, peer3.pubkey(), &util::now()).unwrap();
+        assert_eq!(res3.len(), 0);
+
+        let (message4, _) = make_message::<(), String, ()>(Event::ActiveSubscriptions(vec!["poop".into()]), vec![]);
+        let res4 = sync3.process_event_active_subscriptions(&message4, peer3.pubkey(), &util::now()).unwrap();
+        assert_eq!(res4.len(), 0);
     }
 
     #[test]
