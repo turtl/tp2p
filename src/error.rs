@@ -61,3 +61,9 @@ impl PartialEq for Error {
 /// Wraps `std::result::Result` around our `Error` enum
 pub type Result<T> = std::result::Result<T, Error>;
 
+impl From<Error> for String {
+    fn from(err: Error) -> Self {
+        format!("{:?}", err)
+    }
+}
+

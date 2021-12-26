@@ -163,6 +163,16 @@ pub enum MessageWrapped {
     Init(PeerPubkey),
 }
 
+impl MessageWrapped {
+    /// Grab this wrapped message's sender pubkey
+    pub fn pubkey_sender(&self) -> &PeerPubkey {
+        match self {
+            Self::Sealed(sealed) => sealed.pubkey_sender(),
+            Self::Init(pubkey) => pubkey,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

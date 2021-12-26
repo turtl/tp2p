@@ -11,11 +11,12 @@ use futures::{
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
     collections::HashMap,
+    fmt::Debug,
     ops::Deref,
 };
 use tp2p::{
-    ConnectionInfo, Sync,
     action::Action,
+    sync::{ConnectionInfo, Sync},
 };
 
 pub fn serialize<T: Serialize>(obj: &T) -> Result<Vec<u8>, String> {
@@ -30,10 +31,10 @@ pub fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     Ok(obj)
 }
 
-pub async fn action_dispatcher<U, T, S>(sync: &mut Sync, tx: &Sender<PeerEvent>, action: Action<U, T, S>) -> Result<(), String>
-    where U: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-          T: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
-          S: Clone + Debug + serde::Serialize + serde::de::DeserializeOwned,
+pub async fn action_dispatcher<U, T, S>(sync: &mut Sync<T>, tx: &Sender<PeerEvent>, action: Action<U, T, S>) -> Result<(), String>
+    where U: Debug,
+          T: Debug + Eq + std::hash::Hash,
+          S: Debug,
 {
     if let Action::Sync(sync_action) = action {
         sync.apply_sync_actions(vec![sync_action]);

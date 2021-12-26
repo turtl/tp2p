@@ -1,10 +1,10 @@
-/*
 mod common;
 
 use async_std::{
     channel,
     task,
 };
+use chrono::{DateTime, Utc};
 use common::{
     action_dispatcher,
     deserialize,
@@ -12,13 +12,18 @@ use common::{
     PeerManager,
 };
 use tp2p::{
-    Sync,
+    event::Event,
     message::MessageWrapped,
     peer::{Keypair, PeeringConfig, ConfirmationMode, SubscriptionConfig},
+    sync::Sync,
 };
 
+fn now() -> DateTime<Utc> {
+    Utc::now()
+}
+
 macro_rules! main_loop {
-    ($sync:expr, $peer:expr, $tx:expr, $rx:expr, $name:expr) => {
+    ($sync:expr, $peer:expr, $tx:expr, $rx:expr, $name:expr, $U:ty, $T:ty, $S:ty) => {
         loop {
             match $rx.try_recv() {
                 Ok(PeerEvent::Connect(from)) => {
@@ -26,12 +31,53 @@ macro_rules! main_loop {
                 }
                 Ok(PeerEvent::Recv(from, message_bytes)) => {
                     let msg: MessageWrapped = deserialize(message_bytes.as_ref())?;
-                    //println!(concat!($name, ": recv: {:?} -- {:?}"), from, msg);  // DEBUG: remove
-                    let actions = $sync.process_incoming_message(&msg, from)
-                        .map_err(|err| format!("process: {:?}", err))?;
+                    let actions = match &msg {
+                        MessageWrapped::Init(pubkey) => {
+                            $sync.process_init_message(&msg, &from, &now())?
+                        }
+                        MessageWrapped::Sealed(sealed) => {
+                            let message_opened = $sync.unwrap_incoming_message(sealed)?;
+                            match message_opened.body() {
+                                Event::Hello => {
+                                    $sync.process_event_hello(&message_opened, sealed.pubkey_sender(), &from, &now())?
+                                }
+                                Event::PeerInit { .. } => {
+                                    $sync.process_event_peer_init(&message_opened, sealed.pubkey_sender(), &from, &now())?
+                                }
+                                Event::PeerConfirm { .. } => {
+                                    $sync.process_event_peer_confirm(&message_opened, sealed.pubkey_sender(), &now())?
+                                }
+                                Event::Ping => {
+                                    $sync.process_event_ping(&message_opened, sealed.pubkey_sender(), &now())?
+                                }
+                                Event::Pong => {
+                                    $sync.process_event_pong(&message_opened, sealed.pubkey_sender(), &now())?
+                                }
+                                Event::QueryMessagesByID { ids } => {
+                                    let messages = {
+                                        drop(ids);
+                                        vec![]
+                                    };
+                                    $sync.process_event_query_messages_by_id(&message_opened, sealed.pubkey_sender(), &messages)?
+                                }
+                                Event::QueryMessagesByDepth { topic, depth } => {
+                                    let messages = {
+                                        drop(topic);
+                                        drop(depth);
+                                        vec![]
+                                    };
+                                    $sync.process_event_query_messages_by_depth(&message_opened, sealed.pubkey_sender(), &messages)?
+                                }
+                                Event::Subscribe(..) => {
+                                }
+                                _ => panic!("oi"),
+                            }
+                        }
+                    };
+
                     for action in actions {
                         println!(concat!($name, ": action -- {:?}"), action);
-                        action_dispatcher(&mut $sync, &$tx, action).await?;
+                        action_dispatcher::<$U, $T, $S>(&mut $sync, &$tx, action).await?;
                     }
                 }
                 Err(channel::TryRecvError::Closed) => {
@@ -46,7 +92,6 @@ macro_rules! main_loop {
 
 #[async_std::test]
 async fn peer_connect() -> Result<(), String> {
-    env_logger::init();
     let peer1_task = task::spawn(async move {
         let keypair = Keypair::new_random();
         let peering_config = PeeringConfig::new(
@@ -61,7 +106,7 @@ async fn peer_connect() -> Result<(), String> {
         let peer_task = task::spawn(async move {
             peer.start("127.0.0.1", 50020).await.expect("error running peer");
         });
-        main_loop! { sync , peer, tx, rx, "peer1" }
+        main_loop! { sync , peer, tx, rx, "peer1", (), (), () }
 
         peer_task.await;
         let res: Result<(), String> = Ok(());
@@ -84,12 +129,12 @@ async fn peer_connect() -> Result<(), String> {
             peer.start("127.0.0.1", 50021).await.expect("error running peer");
         });
 
-        let actions = sync.init_comm("127.0.0.1:50020").expect("peer_init failed");
+        let actions = sync.init_comm::<(), ()>("127.0.0.1:50020", &now()).expect("peer_init failed");
         for action in actions {
             println!("peer2: action -- {:?}", action);
             action_dispatcher(&mut sync, &tx, action).await?;
         }
-        main_loop! { sync , peer, tx, rx, "peer2" }
+        main_loop! { sync , peer, tx, rx, "peer2", (), (), () }
 
         peer_task.await;
         let res: Result<(), String> = Ok(());
@@ -101,5 +146,4 @@ async fn peer_connect() -> Result<(), String> {
 
     Ok(())
 }
-*/
 
